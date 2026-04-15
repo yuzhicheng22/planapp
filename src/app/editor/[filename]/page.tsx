@@ -26,10 +26,13 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
 
   // 加载文件内容
   useEffect(() => {
+    let ignore = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setError("");
     fetch(`/api/doc/${filename}`)
       .then(res => res.json())
       .then(data => {
+        if (ignore) return;
         if (data.error) {
           setError(data.error);
         } else {
@@ -39,20 +42,24 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
           setServerMtime(data.mtime || 0);
         }
       });
+    return () => { ignore = true; };
   }, [filename]);
 
   // 轮询检查外部文件变化 (每5秒)
   useEffect(() => {
+    let ignore = false;
     const interval = setInterval(() => {
+      if (ignore) return;
       fetch(`/api/doc/${filename}`)
         .then(res => res.json())
         .then(data => {
+          if (ignore) return;
           if (!data.error && data.mtime && data.mtime > serverMtime) {
             setAutoSaveStatus("检测到外部修改");
           }
         });
     }, 5000);
-    return () => clearInterval(interval);
+    return () => { ignore = true; clearInterval(interval); };
   }, [filename, serverMtime]);
 
   // 刷新文件内容
@@ -139,20 +146,23 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
     }
   }, [filename]);
 
-  const debouncedSave = useCallback(
-    debounce((newContent: string) => {
-      if (newContent !== initialContent) {
-        saveFile(newContent);
-      }
-    }, 1000),
-    [initialContent, saveFile]
-  );
+  // 防抖自动保存
+  const [pendingContent, setPendingContent] = useState("");
+
+  // 自动保存防抖
+  useEffect(() => {
+    if (!pendingContent || pendingContent === initialContent) return;
+    const timer = setTimeout(() => {
+      saveFile(pendingContent);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [pendingContent, initialContent, saveFile]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newContent = e.target.value;
     setContent(newContent);
     setAutoSaveStatus("正在输入...");
-    debouncedSave(newContent);
+    setPendingContent(newContent);
   };
 
   const handleScroll = () => {
