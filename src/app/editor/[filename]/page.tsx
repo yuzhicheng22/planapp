@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useRef, use, useCallback } from "react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
 
-function debounce<T extends (...args: string[]) => unknown>(fn: T, ms: number) {
+function debounce<T extends (...args: string[]) => void>(fn: T, ms: number): T {
   let timeoutId: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
+  return ((...args: Parameters<T>) => {
     clearTimeout(timeoutId);
     timeoutId = setTimeout(() => fn(...args), ms);
-  };
+  }) as T;
 }
 
 export default function EditorPage({ params }: { params: Promise<{ filename: string }> }) {
@@ -20,6 +21,7 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [autoSaveStatus, setAutoSaveStatus] = useState("");
+  const [viewMode, setViewMode] = useState<"edit" | "render">("edit");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // 加载文件内容
@@ -46,7 +48,6 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
         .then(res => res.json())
         .then(data => {
           if (!data.error && data.mtime && data.mtime > serverMtime) {
-            // 检测到外部修改，提示用户
             setAutoSaveStatus("检测到外部修改");
           }
         });
@@ -94,12 +95,18 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
     }
   }, [filename, content]);
 
-  // 快捷键监听 Ctrl+S / Cmd+S
+  // 快捷键监听 Ctrl+S / Cmd+S 和 Tab 切换视图
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+S / Cmd+S 保存
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
         handleManualSave();
+      }
+      // Tab 切换视图模式
+      if (e.key === "Tab") {
+        e.preventDefault();
+        setViewMode(prev => prev === "edit" ? "render" : "edit");
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -158,7 +165,6 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
   };
 
   const lineCount = content.split("\n").length;
-  const hasChanges = content !== initialContent;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)", color: "var(--text)" }}>
@@ -178,32 +184,47 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
             </button>
           )}
         </div>
+        <button
+          onClick={() => setViewMode(viewMode === "edit" ? "render" : "edit")}
+          className="px-3 py-1 text-sm rounded border transition-colors"
+          style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+        >
+          {viewMode === "edit" ? "预览" : "编辑"}
+        </button>
       </header>
       {error && (
         <div className="px-6 py-2 text-sm" style={{ background: "#7f1d1d", color: "#fecaca" }}>
           {error}
         </div>
       )}
-      <div className="flex-1 flex overflow-hidden">
-        <div
-          id="line-numbers"
-          className="py-6 pl-4 pr-3 text-right font-mono text-sm select-none overflow-hidden"
-          style={{ background: "var(--bg-secondary)", color: "var(--text-muted)", width: "50px" }}
-        >
-          {Array.from({ length: lineCount }, (_, i) => (
-            <div key={i} className="leading-6">{i + 1}</div>
-          ))}
+      {viewMode === "edit" ? (
+        <div className="flex-1 flex overflow-hidden">
+          <div
+            id="line-numbers"
+            className="py-6 pl-4 pr-3 text-right font-mono text-sm select-none overflow-hidden"
+            style={{ background: "var(--bg-secondary)", color: "var(--text-muted)", width: "50px" }}
+          >
+            {Array.from({ length: lineCount }, (_, i) => (
+              <div key={i} className="leading-6">{i + 1}</div>
+            ))}
+          </div>
+          <textarea
+            ref={textareaRef}
+            value={content}
+            onChange={handleChange}
+            onScroll={handleScroll}
+            className="flex-1 p-6 font-mono text-sm resize-none focus:outline-none"
+            style={{ background: "var(--bg)", color: "var(--text)" }}
+            placeholder="开始记录..."
+          />
         </div>
-        <textarea
-          ref={textareaRef}
-          value={content}
-          onChange={handleChange}
-          onScroll={handleScroll}
-          className="flex-1 p-6 font-mono text-sm resize-none focus:outline-none"
-          style={{ background: "var(--bg)", color: "var(--text)" }}
-          placeholder="开始记录..."
-        />
-      </div>
+      ) : (
+        <div className="flex-1 overflow-auto p-6">
+          <article className="max-w-3xl mx-auto prose prose-invert">
+            <ReactMarkdown>{content}</ReactMarkdown>
+          </article>
+        </div>
+      )}
     </div>
   );
 }
