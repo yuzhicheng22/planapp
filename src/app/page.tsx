@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface FileInfo {
   name: string;
@@ -32,7 +33,8 @@ export default function Home() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen" style={{ background: "var(--bg)" }}>
+    <div className="flex flex-col items-center justify-center min-h-screen relative" style={{ background: "var(--bg)" }}>
+      <ThemeToggle />
       <main className="w-full max-w-lg px-6">
         <h1 className="text-2xl font-semibold mb-8" style={{ color: "var(--text)" }}>Plan</h1>
 

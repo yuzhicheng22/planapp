@@ -208,12 +208,12 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
         </div>
       )}
       {viewMode === "edit" ? (
-        <div className="flex-1">
+        <div className="flex-1 min-h-0 overflow-auto">
           <div className="flex w-full max-w-4xl mx-auto">
             <div
               id="line-numbers"
-              className="py-6 pl-4 pr-3 text-right font-mono text-sm select-none sticky top-0"
-              style={{ background: "var(--bg-secondary)", color: "var(--text-muted)", width: "50px", flexShrink: 0, minHeight: "100vh" }}
+              className="py-6 pl-4 pr-3 text-right font-mono text-sm select-none"
+              style={{ background: "var(--bg-secondary)", color: "var(--text-muted)", width: "50px", flexShrink: 0 }}
             >
               {Array.from({ length: lineCount }, (_, i) => (
                 <div key={i} className="leading-6">{i + 1}</div>
@@ -224,13 +224,13 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
               value={content}
               onChange={handleChange}
               className="flex-1 p-6 font-mono text-sm resize-none focus:outline-none"
-              style={{ background: "var(--bg)", color: "var(--text)", minHeight: "100vh" }}
+              style={{ background: "var(--bg)", color: "var(--text)" }}
               placeholder="开始记录..."
             />
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 min-h-0 overflow-auto p-6">
           <article className="max-w-3xl mx-auto prose prose-invert">
             <ReactMarkdown>{content}</ReactMarkdown>
           </article>
