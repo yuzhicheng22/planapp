@@ -57,6 +57,19 @@ export function writeFile(filename: string, content: string): void {
   fs.writeFileSync(resolved, content, "utf-8");
 }
 
+export function getFileMtime(filename: string): number {
+  const validName = validateFilename(filename);
+  const filePath = path.join(DOC_DIR, validName);
+  const resolved = path.resolve(filePath);
+  if (!resolved.startsWith(path.resolve(DOC_DIR) + path.sep)) {
+    throw new Error("Access denied");
+  }
+  if (!fs.existsSync(resolved)) {
+    return 0;
+  }
+  return fs.statSync(resolved).mtimeMs;
+}
+
 export function getCurrentMonthFile(): string {
   const now = new Date();
   const year = now.getFullYear();

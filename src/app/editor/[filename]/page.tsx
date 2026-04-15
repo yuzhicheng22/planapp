@@ -1,15 +1,28 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, useRef, use, useCallback } from "react";
 import Link from "next/link";
+
+function debounce<T extends (...args: string[]) => unknown>(fn: T, ms: number) {
+  let timeoutId: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn(...args), ms);
+  };
+}
 
 export default function EditorPage({ params }: { params: Promise<{ filename: string }> }) {
   const { filename } = use(params);
   const [content, setContent] = useState("");
+  const [initialContent, setInitialContent] = useState("");
+  const [serverMtime, setServerMtime] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [autoSaveStatus, setAutoSaveStatus] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // 加载文件内容
   useEffect(() => {
     setError("");
     fetch(`/api/doc/${filename}`)
@@ -18,28 +31,103 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
         if (data.error) {
           setError(data.error);
         } else {
-          setContent(data.content || "");
+          const initial = data.content || "";
+          setContent(initial);
+          setInitialContent(initial);
+          setServerMtime(data.mtime || 0);
         }
       });
   }, [filename]);
 
-  const handleSave = async () => {
+  // 轮询检查外部文件变化 (每5秒)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetch(`/api/doc/${filename}`)
+        .then(res => res.json())
+        .then(data => {
+          if (!data.error && data.mtime && data.mtime > serverMtime) {
+            // 检测到外部修改，提示用户
+            setAutoSaveStatus("检测到外部修改");
+          }
+        });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [filename, serverMtime]);
+
+  // 刷新文件内容
+  const reloadFile = useCallback(() => {
+    fetch(`/api/doc/${filename}`)
+      .then(res => res.json())
+      .then(data => {
+        if (!data.error) {
+          setContent(data.content || "");
+          setInitialContent(data.content || "");
+          setServerMtime(data.mtime || 0);
+          setAutoSaveStatus("");
+        }
+      });
+  }, [filename]);
+
+  const saveFile = useCallback(async (contentToSave: string, isManual = false) => {
     setSaving(true);
-    setError("");
+    if (!isManual) {
+      setAutoSaveStatus("保存中...");
+    }
     const res = await fetch(`/api/doc/${filename}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content: contentToSave }),
     });
     const data = await res.json();
     setSaving(false);
     if (data.error) {
       setError(data.error);
+      if (!isManual) setAutoSaveStatus("保存失败");
     } else {
       setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
+      setServerMtime(data.mtime);
+      setInitialContent(contentToSave);
+      if (!isManual) {
+        setAutoSaveStatus("已自动保存");
+        setTimeout(() => {
+          setSaved(false);
+          setAutoSaveStatus("");
+        }, 1500);
+      }
+    }
+  }, [filename]);
+
+  const debouncedSave = useCallback(
+    debounce((newContent: string) => {
+      if (newContent !== initialContent) {
+        saveFile(newContent);
+      }
+    }, 1000),
+    [initialContent, saveFile]
+  );
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newContent = e.target.value;
+    setContent(newContent);
+    setAutoSaveStatus("正在输入...");
+    debouncedSave(newContent);
+  };
+
+  const handleManualSave = async () => {
+    await saveFile(content, true);
+  };
+
+  const handleScroll = () => {
+    if (textareaRef.current) {
+      const lineNumbers = document.getElementById("line-numbers");
+      if (lineNumbers) {
+        lineNumbers.scrollTop = textareaRef.current.scrollTop;
+      }
     }
   };
+
+  const lineCount = content.split("\n").length;
+  const hasChanges = content !== initialContent;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "var(--bg)", color: "var(--text)" }}>
@@ -49,12 +137,21 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
             ← 返回
           </Link>
           <span className="font-mono text-sm" style={{ color: "var(--text-muted)" }}>{filename}</span>
+          {autoSaveStatus && (
+            <button
+              onClick={reloadFile}
+              className="text-xs px-2 py-0.5 rounded border"
+              style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+            >
+              {autoSaveStatus === "检测到外部修改" ? "点击刷新" : autoSaveStatus}
+            </button>
+          )}
         </div>
         <button
-          onClick={handleSave}
-          disabled={saving}
+          onClick={handleManualSave}
+          disabled={saving || !hasChanges}
           className="px-4 py-1.5 text-sm rounded transition-colors"
-          style={{ background: "var(--accent)", color: "#fff", opacity: saving ? 0.5 : 1 }}
+          style={{ background: "var(--accent)", color: "#fff", opacity: saving || !hasChanges ? 0.5 : 1 }}
         >
           {saving ? "保存中..." : saved ? "已保存" : "保存"}
         </button>
@@ -64,13 +161,26 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
           {error}
         </div>
       )}
-      <textarea
-        value={content}
-        onChange={e => setContent(e.target.value)}
-        className="flex-1 w-full p-6 font-mono text-sm resize-none focus:outline-none"
-        style={{ background: "var(--bg)", color: "var(--text)" }}
-        placeholder="开始记录..."
-      />
+      <div className="flex-1 flex overflow-hidden">
+        <div
+          id="line-numbers"
+          className="py-6 pl-4 pr-3 text-right font-mono text-sm select-none overflow-hidden"
+          style={{ background: "var(--bg-secondary)", color: "var(--text-muted)", width: "50px" }}
+        >
+          {Array.from({ length: lineCount }, (_, i) => (
+            <div key={i} className="leading-6">{i + 1}</div>
+          ))}
+        </div>
+        <textarea
+          ref={textareaRef}
+          value={content}
+          onChange={handleChange}
+          onScroll={handleScroll}
+          className="flex-1 p-6 font-mono text-sm resize-none focus:outline-none"
+          style={{ background: "var(--bg)", color: "var(--text)" }}
+          placeholder="开始记录..."
+        />
+      </div>
     </div>
   );
 }

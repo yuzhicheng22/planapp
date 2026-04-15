@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile, writeFile } from "@/lib/files";
+import { readFile, writeFile, getFileMtime } from "@/lib/files";
 
 export async function GET(
   request: NextRequest,
@@ -8,7 +8,8 @@ export async function GET(
   try {
     const { filename } = await params;
     const content = readFile(filename);
-    return NextResponse.json({ content });
+    const mtime = getFileMtime(filename);
+    return NextResponse.json({ content, mtime });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to read file" },
@@ -25,7 +26,7 @@ export async function POST(
     const { filename } = await params;
     const { content } = await request.json();
     writeFile(filename, content);
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, mtime: getFileMtime(filename) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to save file" },
