@@ -208,25 +208,26 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
         </div>
       )}
       {viewMode === "edit" ? (
-        <div className="flex-1 flex overflow-hidden">
-          <div
-            id="line-numbers"
-            className="py-6 pl-4 pr-3 text-right font-mono text-sm select-none overflow-hidden"
-            style={{ background: "var(--bg-secondary)", color: "var(--text-muted)", width: "50px" }}
-          >
-            {Array.from({ length: lineCount }, (_, i) => (
-              <div key={i} className="leading-6">{i + 1}</div>
-            ))}
+        <div className="flex-1">
+          <div className="flex w-full max-w-4xl mx-auto">
+            <div
+              id="line-numbers"
+              className="py-6 pl-4 pr-3 text-right font-mono text-sm select-none sticky top-0"
+              style={{ background: "var(--bg-secondary)", color: "var(--text-muted)", width: "50px", flexShrink: 0, minHeight: "100vh" }}
+            >
+              {Array.from({ length: lineCount }, (_, i) => (
+                <div key={i} className="leading-6">{i + 1}</div>
+              ))}
+            </div>
+            <textarea
+              ref={textareaRef}
+              value={content}
+              onChange={handleChange}
+              className="flex-1 p-6 font-mono text-sm resize-none focus:outline-none"
+              style={{ background: "var(--bg)", color: "var(--text)", minHeight: "100vh" }}
+              placeholder="开始记录..."
+            />
           </div>
-          <textarea
-            ref={textareaRef}
-            value={content}
-            onChange={handleChange}
-            onScroll={handleScroll}
-            className="flex-1 p-6 font-mono text-sm resize-none focus:outline-none"
-            style={{ background: "var(--bg)", color: "var(--text)" }}
-            placeholder="开始记录..."
-          />
         </div>
       ) : (
         <div className="flex-1 overflow-auto p-6">
