@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Plan
 
-## Getting Started
+让普通人也能轻松维护"自己的 Carmack .plan"的极简列表式记录应用。
 
-First, run the development server:
+## 核心理念
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **极致低摩擦**：记录应像打开文本文件随便写几行一样简单，允许"脏"的记录、吐槽、半成品想法
+- **纯文本优先**：支持 Markdown 渲染，常用符号 `+` 完成、`-` 待办、`*` 想法
+- **单一文件感**：按月存储，持续流动，无需复杂管理
+- **文件大于应用**：数据纯文本存储，方便迁移导出
+
+## 标记语法
+
+```markdown
+## 2026_04_09 Thu.
+
+### + 已完成的事项 #tag
+
+### - 待办事项 #tag
+
+### * 进行中的想法
+
+内容正文...
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 技术栈
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Next.js 14+ (App Router)
+- TypeScript
+- Tailwind CSS
+- 存储：本地 Markdown 文件
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 快速开始
 
-## Learn More
+```bash
+npm install
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 项目结构
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/
+├── app/              # 页面路由
+├── components/       # 组件
+├── lib/             # 解析工具
+└── doc/             # 记录文件目录
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 相关参考
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [mynd](https://myndnote.app/) - 消息流式记录
+- [flomo](https://flomoapp.com/) - 卡片式笔记
+- John Carmack [.plan](http://users.ecs.umass.edu/~cs683/mythoughts.html) 原始概念
