@@ -68,11 +68,48 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
       });
   }, [filename]);
 
-  const saveFile = useCallback(async (contentToSave: string, isManual = false) => {
+  // 手动保存文件
+  const handleManualSave = useCallback(async () => {
     setSaving(true);
-    if (!isManual) {
-      setAutoSaveStatus("保存中...");
+    setAutoSaveStatus("保存中...");
+    const res = await fetch(`/api/doc/${filename}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (data.error) {
+      setError(data.error);
+      setAutoSaveStatus("保存失败");
+    } else {
+      setSaved(true);
+      setServerMtime(data.mtime);
+      setInitialContent(content);
+      setAutoSaveStatus("已保存");
+      setTimeout(() => {
+        setSaved(false);
+        setAutoSaveStatus("");
+      }, 1500);
     }
+  }, [filename, content]);
+
+  // 快捷键监听 Ctrl+S / Cmd+S
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        handleManualSave();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleManualSave]);
+
+  // 自动保存 (防抖)
+  const saveFile = useCallback(async (contentToSave: string) => {
+    setSaving(true);
+    setAutoSaveStatus("保存中...");
     const res = await fetch(`/api/doc/${filename}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -82,18 +119,16 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
     setSaving(false);
     if (data.error) {
       setError(data.error);
-      if (!isManual) setAutoSaveStatus("保存失败");
+      setAutoSaveStatus("保存失败");
     } else {
       setSaved(true);
       setServerMtime(data.mtime);
       setInitialContent(contentToSave);
-      if (!isManual) {
-        setAutoSaveStatus("已自动保存");
-        setTimeout(() => {
-          setSaved(false);
-          setAutoSaveStatus("");
-        }, 1500);
-      }
+      setAutoSaveStatus("已自动保存");
+      setTimeout(() => {
+        setSaved(false);
+        setAutoSaveStatus("");
+      }, 1500);
     }
   }, [filename]);
 
@@ -111,10 +146,6 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
     setContent(newContent);
     setAutoSaveStatus("正在输入...");
     debouncedSave(newContent);
-  };
-
-  const handleManualSave = async () => {
-    await saveFile(content, true);
   };
 
   const handleScroll = () => {
@@ -147,14 +178,6 @@ export default function EditorPage({ params }: { params: Promise<{ filename: str
             </button>
           )}
         </div>
-        <button
-          onClick={handleManualSave}
-          disabled={saving || !hasChanges}
-          className="px-4 py-1.5 text-sm rounded transition-colors"
-          style={{ background: "var(--accent)", color: "#fff", opacity: saving || !hasChanges ? 0.5 : 1 }}
-        >
-          {saving ? "保存中..." : saved ? "已保存" : "保存"}
-        </button>
       </header>
       {error && (
         <div className="px-6 py-2 text-sm" style={{ background: "#7f1d1d", color: "#fecaca" }}>
