@@ -21,7 +21,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [autoSaveStatus, setAutoSaveStatus] = useState("");
   const [viewMode, setViewMode] = useState<"edit" | "render">("edit");
-  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarVisible] = useState(true);
   const [fileMenuOpen, setFileMenuOpen] = useState<string | null>(null);
   const [sidebarMenuOpen, setSidebarMenuOpen] = useState(false);
   const [error, setError] = useState("");
@@ -324,13 +324,6 @@ export default function Home() {
         {/* 侧边栏头部 */}
         <div className="flex items-center justify-between p-3 border-b" style={{ borderColor: "var(--border)" }}>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setSidebarVisible(!sidebarVisible)}
-              className="text-xs px-2 py-1 rounded hover:bg-zinc-700/50"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {sidebarVisible ? "◀" : "▶"}
-            </button>
             <span className="font-medium text-sm truncate" style={{ color: "var(--text)" }} title={docPath}>
               {docPath.split(/[/\\]/).pop()}
             </span>
@@ -440,13 +433,6 @@ export default function Home() {
         {/* 工具栏 */}
         <header className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarVisible(!sidebarVisible)}
-              className="text-sm px-2 py-1 rounded hover:bg-zinc-700/50"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {sidebarVisible ? "◀" : "▶"}
-            </button>
             <span className="font-mono text-sm" style={{ color: "var(--text-muted)" }}>
               {selectedFile || "未选择文件"}
             </span>
