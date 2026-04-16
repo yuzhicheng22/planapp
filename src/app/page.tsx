@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/lib/theme-context";
+import { ConfirmModal, InputModal } from "@/components/modal";
 
 interface FileItem {
   name: string;
@@ -24,6 +25,9 @@ export default function Home() {
   const [fileMenuOpen, setFileMenuOpen] = useState<string | null>(null);
   const [sidebarMenuOpen, setSidebarMenuOpen] = useState(false);
   const [error, setError] = useState("");
+  const [modalType, setModalType] = useState<"create" | "rename" | "delete" | null>(null);
+  const [modalFile, setModalFile] = useState<string | null>(null);
+  const [modalValue, setModalValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // 加载目录路径
@@ -41,7 +45,17 @@ export default function Home() {
     fetch(url)
       .then(res => res.json())
       .then(data => {
-        setFiles(data.files);
+        const pinnedFiles = JSON.parse(localStorage.getItem("pinnedFiles") || "[]");
+        const sorted = [...data.files].sort((a, b) => {
+          const aPinned = pinnedFiles.includes(a.name);
+          const bPinned = pinnedFiles.includes(b.name);
+          if (aPinned && !bPinned) return -1;
+          if (!aPinned && bPinned) return 1;
+          if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+          return b.name.localeCompare(a.name);
+        });
+        setFiles(sorted);
+        setFiles(sorted);
       })
       .catch(() => setFiles([]));
   }, [docPath]);
@@ -177,11 +191,14 @@ export default function Home() {
   };
 
   // 创建文件
-  const handleCreateFile = async () => {
-    if (!docPath) return;
-    const name = prompt("请输入文件名（无需 .md 后缀）:");
-    if (!name) return;
-    const fileName = name.endsWith(".md") ? name : `${name}.md`;
+  const handleCreateFile = () => {
+    setModalType("create");
+    setModalValue("");
+  };
+
+  const confirmCreateFile = async () => {
+    if (!docPath || !modalValue) return;
+    const fileName = modalValue.endsWith(".md") ? modalValue : `${modalValue}.md`;
     const res = await fetch("/api/files", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -189,60 +206,83 @@ export default function Home() {
     });
     const data = await res.json();
     if (data.error) {
-      alert(data.error);
+      setError(data.error);
     } else {
       loadFiles();
       setSelectedFile(fileName);
     }
+    setModalType(null);
   };
 
   // 重命名文件
-  const handleRenameFile = async (oldName: string) => {
-    if (!docPath) return;
-    const newName = prompt("请输入新文件名：", oldName);
-    if (!newName || newName === oldName) return;
-    const finalName = newName.endsWith(".md") ? newName : `${newName}.md`;
+  const handleRenameFile = (oldName: string) => {
+    setModalFile(oldName);
+    setModalType("rename");
+    setModalValue(oldName.replace(".md", ""));
+  };
+
+  const confirmRenameFile = async () => {
+    if (!docPath || !modalFile || !modalValue) return;
+    const finalName = modalValue.endsWith(".md") ? modalValue : `${modalValue}.md`;
     const res = await fetch("/api/files", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "move", name: oldName, newName: finalName, docPath }),
+      body: JSON.stringify({ action: "move", name: modalFile, newName: finalName, docPath }),
     });
     const data = await res.json();
     if (data.error) {
-      alert(data.error);
+      setError(data.error);
     } else {
-      if (selectedFile === oldName) {
+      if (selectedFile === modalFile) {
         setSelectedFile(finalName);
       }
       loadFiles();
     }
+    setModalType(null);
     setFileMenuOpen(null);
   };
 
   // 删除文件
-  const handleDeleteFile = async (name: string) => {
-    if (!docPath || !confirm(`确定要删除 ${name} 吗？`)) return;
+  const handleDeleteFile = (name: string) => {
+    setModalFile(name);
+    setModalType("delete");
+  };
+
+  const confirmDeleteFile = async () => {
+    if (!docPath || !modalFile) return;
     const res = await fetch("/api/files", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "delete", name, docPath }),
+      body: JSON.stringify({ action: "delete", name: modalFile, docPath }),
     });
     const data = await res.json();
     if (data.error) {
-      alert(data.error);
+      setError(data.error);
     } else {
-      if (selectedFile === name) {
+      if (selectedFile === modalFile) {
         setSelectedFile(null);
         setContent("");
       }
       loadFiles();
     }
+    setModalType(null);
     setFileMenuOpen(null);
   };
 
   // 置顶文件
   const handlePinFile = async (name: string) => {
-    alert("置顶功能开发中");
+    // 获取当前的置顶列表
+    const pinnedFiles = JSON.parse(localStorage.getItem("pinnedFiles") || "[]");
+    if (pinnedFiles.includes(name)) {
+      // 取消置顶
+      const newPinned = pinnedFiles.filter((f: string) => f !== name);
+      localStorage.setItem("pinnedFiles", JSON.stringify(newPinned));
+    } else {
+      // 添加置顶
+      pinnedFiles.push(name);
+      localStorage.setItem("pinnedFiles", JSON.stringify(pinnedFiles));
+    }
+    loadFiles();
     setFileMenuOpen(null);
   };
 
@@ -400,6 +440,13 @@ export default function Home() {
         {/* 工具栏 */}
         <header className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSidebarVisible(!sidebarVisible)}
+              className="text-sm px-2 py-1 rounded hover:bg-zinc-700/50"
+              style={{ color: "var(--text-muted)" }}
+            >
+              {sidebarVisible ? "◀" : "▶"}
+            </button>
             <span className="font-mono text-sm" style={{ color: "var(--text-muted)" }}>
               {selectedFile || "未选择文件"}
             </span>
@@ -456,6 +503,37 @@ export default function Home() {
           )}
         </div>
       </main>
+
+      {/* 弹窗 */}
+      <InputModal
+        isOpen={modalType === "create"}
+        onClose={() => setModalType(null)}
+        onConfirm={confirmCreateFile}
+        title="新建文件"
+        label="文件名"
+        placeholder="输入文件名（无需 .md 后缀）"
+        confirmText="创建"
+      />
+      <InputModal
+        isOpen={modalType === "rename"}
+        onClose={() => setModalType(null)}
+        onConfirm={confirmRenameFile}
+        title="重命名"
+        label="新文件名"
+        placeholder="输入新文件名"
+        defaultValue={modalValue}
+        confirmText="确定"
+      />
+      <ConfirmModal
+        isOpen={modalType === "delete"}
+        onClose={() => setModalType(null)}
+        onConfirm={confirmDeleteFile}
+        title="删除文件"
+        message={`确定要删除 "${modalFile}" 吗？此操作不可撤销。`}
+        confirmText="删除"
+        cancelText="取消"
+        danger
+      />
     </div>
   );
 }
