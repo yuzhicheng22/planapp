@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ThemeToggle } from "@/components/theme-toggle";
 import ReactMarkdown from "react-markdown";
+import { useTheme } from "@/lib/theme-context";
 
 interface FileItem {
   name: string;
@@ -10,25 +10,19 @@ interface FileItem {
   isDir: boolean;
 }
 
-function debounce<T extends (...args: string[]) => void>(fn: T, ms: number): T {
-  let timeoutId: NodeJS.Timeout;
-  return ((...args: Parameters<T>) => {
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => fn(...args), ms);
-  }) as T;
-}
-
 export default function Home() {
+  const { theme, toggleTheme } = useTheme();
   const [docPath, setDocPath] = useState<string | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [initialContent, setInitialContent] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState("");
   const [viewMode, setViewMode] = useState<"edit" | "render">("edit");
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [fileMenuOpen, setFileMenuOpen] = useState<string | null>(null);
+  const [sidebarMenuOpen, setSidebarMenuOpen] = useState(false);
   const [error, setError] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -48,12 +42,9 @@ export default function Home() {
       .then(res => res.json())
       .then(data => {
         setFiles(data.files);
-        if (data.files.length > 0 && !selectedFile) {
-          setSelectedFile(data.files[0].name);
-        }
       })
       .catch(() => setFiles([]));
-  }, [docPath, selectedFile]);
+  }, [docPath]);
 
   useEffect(() => {
     if (docPath) {
@@ -85,7 +76,6 @@ export default function Home() {
   // 自动保存
   const saveFile = useCallback(async (contentToSave: string) => {
     if (!selectedFile || !docPath) return;
-    setSaving(true);
     setAutoSaveStatus("保存中...");
     const url = `/api/doc/${selectedFile}?path=${encodeURIComponent(docPath)}`;
     const res = await fetch(url, {
@@ -94,7 +84,6 @@ export default function Home() {
       body: JSON.stringify({ content: contentToSave }),
     });
     const data = await res.json();
-    setSaving(false);
     if (data.error) {
       setAutoSaveStatus("保存失败");
     } else {
@@ -139,7 +128,6 @@ export default function Home() {
 
   const handleManualSave = async () => {
     if (!selectedFile || !docPath) return;
-    setSaving(true);
     setAutoSaveStatus("保存中...");
     const url = `/api/doc/${selectedFile}?path=${encodeURIComponent(docPath)}`;
     const res = await fetch(url, {
@@ -148,7 +136,6 @@ export default function Home() {
       body: JSON.stringify({ content }),
     });
     const data = await res.json();
-    setSaving(false);
     if (data.error) {
       setAutoSaveStatus("保存失败");
     } else {
@@ -167,19 +154,17 @@ export default function Home() {
     input.onchange = async (e) => {
       const files = (e.target as HTMLInputElement).files;
       if (files && files.length > 0) {
-        // @ts-ignore - Electron/NW.js 环境才有 path 属性
-        let filePath = files[0].path || files[0].webkitRelativePath;
+        // @ts-expect-error - Electron环境
+        const filePath = files[0].path || files[0].webkitRelativePath;
         if (filePath) {
-          // 获取目录路径
           const parts = filePath.split(/[/\\]/);
-          parts.pop(); // 移除文件名
+          parts.pop();
           const dirPath = parts.join("/");
           if (dirPath) {
             setDocPath(dirPath);
             localStorage.setItem("docPath", dirPath);
           }
         } else {
-          // 普通浏览器环境，让用户输入路径
           const path = prompt("无法自动获取目录路径，请输入文档目录的完整路径：");
           if (path) {
             setDocPath(path);
@@ -211,6 +196,29 @@ export default function Home() {
     }
   };
 
+  // 重命名文件
+  const handleRenameFile = async (oldName: string) => {
+    if (!docPath) return;
+    const newName = prompt("请输入新文件名：", oldName);
+    if (!newName || newName === oldName) return;
+    const finalName = newName.endsWith(".md") ? newName : `${newName}.md`;
+    const res = await fetch("/api/files", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "move", name: oldName, newName: finalName, docPath }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      alert(data.error);
+    } else {
+      if (selectedFile === oldName) {
+        setSelectedFile(finalName);
+      }
+      loadFiles();
+    }
+    setFileMenuOpen(null);
+  };
+
   // 删除文件
   const handleDeleteFile = async (name: string) => {
     if (!docPath || !confirm(`确定要删除 ${name} 吗？`)) return;
@@ -229,6 +237,13 @@ export default function Home() {
       }
       loadFiles();
     }
+    setFileMenuOpen(null);
+  };
+
+  // 置顶文件
+  const handlePinFile = async (name: string) => {
+    alert("置顶功能开发中");
+    setFileMenuOpen(null);
   };
 
   if (loading) {
@@ -242,7 +257,6 @@ export default function Home() {
   if (!docPath) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen" style={{ background: "var(--bg)" }}>
-        <ThemeToggle />
         <div className="text-center mb-8">
           <h1 className="text-3xl font-semibold mb-2" style={{ color: "var(--text)" }}>Plan</h1>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>选择你的文档目录开始使用</p>
@@ -264,21 +278,56 @@ export default function Home() {
     <div className="flex h-screen" style={{ background: "var(--bg)" }}>
       {/* 侧边栏 */}
       <aside
-        className={`flex flex-col border-r ${sidebarVisible ? "w-64" : "w-0"} overflow-hidden transition-all`}
+        className={`flex flex-col border-r relative ${sidebarVisible ? "w-64" : "w-0"} overflow-hidden transition-all`}
         style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
       >
-        <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: "var(--border)" }}>
-          <span className="font-medium text-sm truncate" style={{ color: "var(--text)" }} title={docPath}>
-            {docPath.split(/[/\\]/).pop()}
-          </span>
-          <button
-            onClick={() => setDocPath(null)}
-            className="text-xs px-2 py-1 rounded border"
-            style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
-          >
-            切换
-          </button>
+        {/* 侧边栏头部 */}
+        <div className="flex items-center justify-between p-3 border-b" style={{ borderColor: "var(--border)" }}>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSidebarVisible(!sidebarVisible)}
+              className="text-xs px-2 py-1 rounded hover:bg-zinc-700/50"
+              style={{ color: "var(--text-muted)" }}
+            >
+              {sidebarVisible ? "◀" : "▶"}
+            </button>
+            <span className="font-medium text-sm truncate" style={{ color: "var(--text)" }} title={docPath}>
+              {docPath.split(/[/\\]/).pop()}
+            </span>
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => setSidebarMenuOpen(!sidebarMenuOpen)}
+              className="text-sm px-2 py-1 rounded hover:bg-zinc-700/50"
+              style={{ color: "var(--text-muted)" }}
+            >
+              ⋮
+            </button>
+            {sidebarMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setSidebarMenuOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 w-36 py-1 rounded border shadow-lg z-20" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
+                  <button
+                    onClick={() => { handleSelectDirectory(); setSidebarMenuOpen(false); }}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                    style={{ color: "var(--text)" }}
+                  >
+                    切换目录
+                  </button>
+                  <button
+                    onClick={() => { toggleTheme(); setSidebarMenuOpen(false); }}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                    style={{ color: "var(--text)" }}
+                  >
+                    {theme === "dark" ? "浅色模式" : "深色模式"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
+
+        {/* 文件列表 */}
         <div className="flex-1 overflow-auto p-2">
           <button
             onClick={handleCreateFile}
@@ -289,7 +338,7 @@ export default function Home() {
           </button>
           <ul className="mt-2 space-y-1">
             {files.map(file => (
-              <li key={file.name} className="group">
+              <li key={file.name} className="group relative">
                 <div className="flex items-center">
                   <button
                     onClick={() => setSelectedFile(file.name)}
@@ -301,13 +350,43 @@ export default function Home() {
                     {file.isDir ? "📁 " : "📄 "}{file.name}
                   </button>
                   {!file.isDir && (
-                    <button
-                      onClick={() => handleDeleteFile(file.name)}
-                      className="opacity-0 group-hover:opacity-100 px-2 text-xs"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      ✕
-                    </button>
+                    <div className="relative">
+                      <button
+                        onClick={() => setFileMenuOpen(fileMenuOpen === file.name ? null : file.name)}
+                        className="opacity-0 group-hover:opacity-100 px-2 text-xs"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        ⋮
+                      </button>
+                      {fileMenuOpen === file.name && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setFileMenuOpen(null)} />
+                          <div className="absolute right-0 top-full mt-1 w-28 py-1 rounded border shadow-lg z-20" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
+                            <button
+                              onClick={() => handleRenameFile(file.name)}
+                              className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                              style={{ color: "var(--text)" }}
+                            >
+                              重命名
+                            </button>
+                            <button
+                              onClick={() => handlePinFile(file.name)}
+                              className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                              style={{ color: "var(--text)" }}
+                            >
+                              置顶
+                            </button>
+                            <button
+                              onClick={() => handleDeleteFile(file.name)}
+                              className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                              style={{ color: "#f87171" }}
+                            >
+                              删除
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               </li>
@@ -321,13 +400,6 @@ export default function Home() {
         {/* 工具栏 */}
         <header className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setSidebarVisible(!sidebarVisible)}
-              className="text-sm px-2 py-1 rounded"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {sidebarVisible ? "◀" : "▶"}
-            </button>
             <span className="font-mono text-sm" style={{ color: "var(--text-muted)" }}>
               {selectedFile || "未选择文件"}
             </span>
@@ -337,16 +409,13 @@ export default function Home() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <button
-              onClick={() => setViewMode(viewMode === "edit" ? "render" : "edit")}
-              className="px-3 py-1 text-sm rounded border"
-              style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
-            >
-              {viewMode === "edit" ? "预览" : "编辑"}
-            </button>
-          </div>
+          <button
+            onClick={() => setViewMode(viewMode === "edit" ? "render" : "edit")}
+            className="px-3 py-1 text-sm rounded border"
+            style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+          >
+            {viewMode === "edit" ? "预览" : "编辑"}
+          </button>
         </header>
 
         {/* 编辑器/预览区 */}
