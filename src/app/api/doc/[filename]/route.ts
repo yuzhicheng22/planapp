@@ -7,8 +7,9 @@ export async function GET(
 ) {
   try {
     const { filename } = await params;
-    const content = readFile(filename);
-    const mtime = getFileMtime(filename);
+    const docPath = request.nextUrl.searchParams.get("path") || undefined;
+    const content = readFile(filename, docPath);
+    const mtime = getFileMtime(filename, docPath);
     return NextResponse.json({ content, mtime });
   } catch (error) {
     return NextResponse.json(
@@ -24,9 +25,10 @@ export async function POST(
 ) {
   try {
     const { filename } = await params;
+    const docPath = request.nextUrl.searchParams.get("path") || undefined;
     const { content } = await request.json();
-    writeFile(filename, content);
-    return NextResponse.json({ success: true, mtime: getFileMtime(filename) });
+    writeFile(filename, content, docPath);
+    return NextResponse.json({ success: true, mtime: getFileMtime(filename, docPath) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to save file" },
