@@ -196,9 +196,9 @@ export default function Home() {
     setModalValue("");
   };
 
-  const confirmCreateFile = async () => {
-    if (!docPath || !modalValue) return;
-    const fileName = modalValue.endsWith(".md") ? modalValue : `${modalValue}.md`;
+  const confirmCreateFile = async (value: string) => {
+    if (!docPath || !value) return;
+    const fileName = value.endsWith(".md") ? value : `${value}.md`;
     const res = await fetch("/api/files", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
