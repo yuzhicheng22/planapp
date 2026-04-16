@@ -328,35 +328,37 @@ export default function Home() {
               {docPath.split(/[/\\]/).pop()}
             </span>
           </div>
-          <div className="relative">
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => setSidebarMenuOpen(!sidebarMenuOpen)}
+              onClick={toggleTheme}
               className="text-sm px-2 py-1 rounded hover:bg-zinc-700/50"
               style={{ color: "var(--text-muted)" }}
             >
-              ⋮
+              {theme === "dark" ? "☀" : "🌙"}
             </button>
-            {sidebarMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setSidebarMenuOpen(false)} />
-                <div className="absolute right-0 top-full mt-1 w-36 py-1 rounded border shadow-lg z-20" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
-                  <button
-                    onClick={() => { handleSelectDirectory(); setSidebarMenuOpen(false); }}
-                    className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
-                    style={{ color: "var(--text)" }}
-                  >
-                    切换目录
-                  </button>
-                  <button
-                    onClick={() => { toggleTheme(); setSidebarMenuOpen(false); }}
-                    className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
-                    style={{ color: "var(--text)" }}
-                  >
-                    {theme === "dark" ? "浅色模式" : "深色模式"}
-                  </button>
-                </div>
-              </>
-            )}
+            <div className="relative">
+              <button
+                onClick={() => setSidebarMenuOpen(!sidebarMenuOpen)}
+                className="text-sm px-2 py-1 rounded hover:bg-zinc-700/50"
+                style={{ color: "var(--text-muted)" }}
+              >
+                ⋮
+              </button>
+              {sidebarMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setSidebarMenuOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 w-36 py-1 rounded border shadow-lg z-20" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
+                    <button
+                      onClick={() => { handleSelectDirectory(); setSidebarMenuOpen(false); }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                      style={{ color: "var(--text)" }}
+                    >
+                      切换目录
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
