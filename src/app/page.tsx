@@ -5,29 +5,40 @@ import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/lib/theme-context";
 import { ConfirmModal, InputModal } from "@/components/modal";
 
-interface FileItem {
+interface FileTreeItem {
   name: string;
-  modified: string;
+  path: string;
   isDir: boolean;
+  modified: string;
+  children?: FileTreeItem[];
+}
+
+interface SearchResult {
+  name: string;
+  path: string;
+  matches: string[];
 }
 
 export default function Home() {
   const { theme, toggleTheme } = useTheme();
   const [docPath, setDocPath] = useState<string | null>(null);
-  const [files, setFiles] = useState<FileItem[]>([]);
+  const [fileTree, setFileTree] = useState<FileTreeItem[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [initialContent, setInitialContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [autoSaveStatus, setAutoSaveStatus] = useState("");
   const [viewMode, setViewMode] = useState<"edit" | "render">("edit");
-  const [sidebarVisible] = useState(true);
   const [fileMenuOpen, setFileMenuOpen] = useState<string | null>(null);
   const [sidebarMenuOpen, setSidebarMenuOpen] = useState(false);
   const [error, setError] = useState("");
-  const [modalType, setModalType] = useState<"create" | "rename" | "delete" | null>(null);
+  const [modalType, setModalType] = useState<string | null>(null);
   const [modalFile, setModalFile] = useState<string | null>(null);
   const [modalValue, setModalValue] = useState("");
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // 加载目录路径
@@ -38,36 +49,26 @@ export default function Home() {
     }
   }, []);
 
-  // 加载文件列表
-  const loadFiles = useCallback(() => {
+  // 加载文件树
+  const loadFileTree = useCallback(() => {
     if (!docPath) return;
-    const url = `/api/files?path=${encodeURIComponent(docPath)}`;
+    const url = `/api/files?action=tree&path=${encodeURIComponent(docPath)}`;
     fetch(url)
       .then(res => res.json())
       .then(data => {
-        const pinnedFiles = JSON.parse(localStorage.getItem("pinnedFiles") || "[]");
-        const sorted = [...data.files].sort((a, b) => {
-          const aPinned = pinnedFiles.includes(a.name);
-          const bPinned = pinnedFiles.includes(b.name);
-          if (aPinned && !bPinned) return -1;
-          if (!aPinned && bPinned) return 1;
-          if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-          return b.name.localeCompare(a.name);
-        });
-        setFiles(sorted);
-        setFiles(sorted);
+        setFileTree(data.tree || []);
       })
-      .catch(() => setFiles([]));
+      .catch(() => setFileTree([]));
   }, [docPath]);
 
   useEffect(() => {
     if (docPath) {
-      loadFiles();
+      loadFileTree();
       setLoading(false);
     } else {
       setLoading(false);
     }
-  }, [docPath, loadFiles]);
+  }, [docPath, loadFileTree]);
 
   // 加载选中文件内容
   useEffect(() => {
@@ -111,17 +112,14 @@ export default function Home() {
 
   useEffect(() => {
     if (!pendingContent || pendingContent === initialContent) return;
-    const timer = setTimeout(() => {
-      saveFile(pendingContent);
-    }, 1000);
+    const timer = setTimeout(() => saveFile(pendingContent), 1000);
     return () => clearTimeout(timer);
   }, [pendingContent, initialContent, saveFile]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newContent = e.target.value;
-    setContent(newContent);
+    setContent(e.target.value);
     setAutoSaveStatus("正在输入...");
-    setPendingContent(newContent);
+    setPendingContent(e.target.value);
   };
 
   // 快捷键
@@ -134,6 +132,10 @@ export default function Home() {
       if (e.key === "Tab") {
         e.preventDefault();
         setViewMode(prev => prev === "edit" ? "render" : "edit");
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -190,15 +192,44 @@ export default function Home() {
     input.click();
   };
 
+  // 切换目录展开
+  const toggleDir = (path: string) => {
+    setExpandedDirs(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
+
+  // 选择文件
+  const handleSelectFile = (path: string) => {
+    // 确保父目录展开
+    const parts = path.split("/");
+    if (parts.length > 1) {
+      const parentPath = parts.slice(0, -1).join("/");
+      setExpandedDirs(prev => {
+        const next = new Set(prev);
+        next.add(parentPath);
+        return next;
+      });
+    }
+    setSelectedFile(path);
+  };
+
   // 创建文件
-  const handleCreateFile = () => {
+  const handleCreateFile = (parentPath: string = "") => {
+    setModalFile(parentPath);
     setModalType("create");
     setModalValue("");
   };
 
   const confirmCreateFile = async (value: string) => {
     if (!docPath || !value) return;
-    const fileName = value.endsWith(".md") ? value : `${value}.md`;
+    const fileName = modalFile ? `${modalFile}/${value}.md` : `${value}.md`;
     const res = await fetch("/api/files", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -208,52 +239,81 @@ export default function Home() {
     if (data.error) {
       setError(data.error);
     } else {
-      loadFiles();
+      loadFileTree();
       setSelectedFile(fileName);
     }
     setModalType(null);
   };
 
-  // 重命名文件
-  const handleRenameFile = (oldName: string) => {
-    setModalFile(oldName);
-    setModalType("rename");
-    setModalValue(oldName.replace(".md", ""));
+  // 创建文件夹
+  const handleCreateDir = (parentPath: string = "") => {
+    setModalFile(parentPath);
+    setModalType("createDir");
+    setModalValue("");
   };
 
-  const confirmRenameFile = async () => {
-    if (!docPath || !modalFile || !modalValue) return;
-    const finalName = modalValue.endsWith(".md") ? modalValue : `${modalValue}.md`;
+  const confirmCreateDir = async (value: string) => {
+    if (!docPath || !value) return;
+    const dirName = modalFile ? `${modalFile}/${value}` : value;
     const res = await fetch("/api/files", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "move", name: modalFile, newName: finalName, docPath }),
+      body: JSON.stringify({ action: "createDir", name: dirName, docPath }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      setError(data.error);
+    } else {
+      loadFileTree();
+      // 自动展开新目录
+      setExpandedDirs(prev => new Set(prev).add(dirName));
+    }
+    setModalType(null);
+  };
+
+  // 重命名
+  const handleRename = (path: string) => {
+    setModalFile(path);
+    setModalType("rename");
+    setModalValue(path.split("/").pop()!.replace(".md", ""));
+  };
+
+  const confirmRename = async () => {
+    if (!docPath || !modalFile || !modalValue) return;
+    const parts = modalFile.split("/");
+    parts[parts.length - 1] = modalValue.endsWith(".md") ? modalValue : `${modalValue}.md`;
+    const newPath = parts.join("/");
+    const res = await fetch("/api/files", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "move", name: modalFile, newName: newPath, docPath }),
     });
     const data = await res.json();
     if (data.error) {
       setError(data.error);
     } else {
       if (selectedFile === modalFile) {
-        setSelectedFile(finalName);
+        setSelectedFile(newPath);
       }
-      loadFiles();
+      loadFileTree();
     }
     setModalType(null);
     setFileMenuOpen(null);
   };
 
-  // 删除文件
-  const handleDeleteFile = (name: string) => {
-    setModalFile(name);
-    setModalType("delete");
+  // 删除
+  const handleDelete = (path: string, isDir: boolean) => {
+    setModalFile(path);
+    setModalType(isDir ? "deleteDir" : "delete");
   };
 
-  const confirmDeleteFile = async () => {
+  const confirmDelete = async () => {
     if (!docPath || !modalFile) return;
+    const action = modalType === "deleteDir" ? "deleteDir" : "delete";
     const res = await fetch("/api/files", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "delete", name: modalFile, docPath }),
+      body: JSON.stringify({ action, name: modalFile, docPath }),
     });
     const data = await res.json();
     if (data.error) {
@@ -263,27 +323,173 @@ export default function Home() {
         setSelectedFile(null);
         setContent("");
       }
-      loadFiles();
+      loadFileTree();
     }
     setModalType(null);
     setFileMenuOpen(null);
   };
 
-  // 置顶文件
-  const handlePinFile = async (name: string) => {
-    // 获取当前的置顶列表
+  // 置顶
+  const handlePin = (name: string) => {
     const pinnedFiles = JSON.parse(localStorage.getItem("pinnedFiles") || "[]");
     if (pinnedFiles.includes(name)) {
-      // 取消置顶
       const newPinned = pinnedFiles.filter((f: string) => f !== name);
       localStorage.setItem("pinnedFiles", JSON.stringify(newPinned));
     } else {
-      // 添加置顶
       pinnedFiles.push(name);
       localStorage.setItem("pinnedFiles", JSON.stringify(pinnedFiles));
     }
-    loadFiles();
+    loadFileTree();
     setFileMenuOpen(null);
+  };
+
+  // 搜索
+  const handleSearch = useCallback(() => {
+    if (!docPath || !searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    const url = `/api/files?action=search&q=${encodeURIComponent(searchQuery)}&path=${encodeURIComponent(docPath)}`;
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        setSearchResults(data.results || []);
+      })
+      .catch(() => setSearchResults([]));
+  }, [docPath, searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => handleSearch(), 300);
+    return () => clearTimeout(timer);
+  }, [handleSearch]);
+
+  // 渲染文件树
+  const renderTree = (items: FileTreeItem[], depth: number = 0) => {
+    return items.map(item => {
+      const isExpanded = expandedDirs.has(item.path);
+      const itemName = item.path.split("/").pop() || "";
+
+      if (item.isDir) {
+        return (
+          <div key={item.path}>
+            <div className="flex items-center group">
+              <button
+                onClick={() => toggleDir(item.path)}
+                className="flex-1 flex items-center px-2 py-1.5 rounded text-sm hover:bg-zinc-700/30"
+                style={{ paddingLeft: `${depth * 16 + 8}px`, color: "var(--text)" }}
+              >
+                <span className="w-4 mr-1">{isExpanded ? "📂" : "📁"}</span>
+                <span className="truncate">{item.name}</span>
+              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setFileMenuOpen(fileMenuOpen === item.path ? null : item.path)}
+                  className="opacity-0 group-hover:opacity-100 px-1.5 text-xs"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  ⋮
+                </button>
+                {fileMenuOpen === item.path && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setFileMenuOpen(null)} />
+                    <div className="absolute right-0 top-full mt-1 w-28 py-1 rounded border shadow-lg z-20" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
+                      <button
+                        onClick={() => { handleCreateFile(item.path); setFileMenuOpen(null); }}
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                        style={{ color: "var(--text)" }}
+                      >
+                        新建文件
+                      </button>
+                      <button
+                        onClick={() => { handleCreateDir(item.path); setFileMenuOpen(null); }}
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                        style={{ color: "var(--text)" }}
+                      >
+                        新建文件夹
+                      </button>
+                      <button
+                        onClick={() => { handleRename(item.path); setFileMenuOpen(null); }}
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                        style={{ color: "var(--text)" }}
+                      >
+                        重命名
+                      </button>
+                      <button
+                        onClick={() => { handleDelete(item.path, true); setFileMenuOpen(null); }}
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                        style={{ color: "#f87171" }}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            {isExpanded && item.children && renderTree(item.children, depth + 1)}
+          </div>
+        );
+      }
+
+      const fileName = item.name;
+      const isSelected = selectedFile === item.path;
+      const isPinned = JSON.parse(localStorage.getItem("pinnedFiles") || "[]").includes(fileName);
+
+      return (
+        <div key={item.path} className="flex items-center group">
+          <button
+            onClick={() => handleSelectFile(item.path)}
+            className={`flex-1 flex items-center px-2 py-1.5 rounded text-sm truncate ${
+              isSelected ? "bg-zinc-700/50" : "hover:bg-zinc-700/30"
+            }`}
+            style={{
+              paddingLeft: `${depth * 16 + 8}px`,
+              color: isSelected ? "var(--text)" : "var(--text-muted)",
+            }}
+          >
+            {isPinned && <span className="mr-1">📌</span>}
+            <span>📄 {item.name}</span>
+          </button>
+          <div className="relative">
+            <button
+              onClick={() => setFileMenuOpen(fileMenuOpen === item.path ? null : item.path)}
+              className="opacity-0 group-hover:opacity-100 px-1.5 text-xs"
+              style={{ color: "var(--text-muted)" }}
+            >
+              ⋮
+            </button>
+            {fileMenuOpen === item.path && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setFileMenuOpen(null)} />
+                <div className="absolute right-0 top-full mt-1 w-28 py-1 rounded border shadow-lg z-20" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
+                  <button
+                    onClick={() => { handlePin(fileName); setFileMenuOpen(null); }}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                    style={{ color: "var(--text)" }}
+                  >
+                    {isPinned ? "取消置顶" : "置顶"}
+                  </button>
+                  <button
+                    onClick={() => { handleRename(item.path); setFileMenuOpen(null); }}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                    style={{ color: "var(--text)" }}
+                  >
+                    重命名
+                  </button>
+                  <button
+                    onClick={() => { handleDelete(item.path, false); setFileMenuOpen(null); }}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
+                    style={{ color: "#f87171" }}
+                  >
+                    删除
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    });
   };
 
   if (loading) {
@@ -316,19 +522,70 @@ export default function Home() {
 
   return (
     <div className="flex h-screen" style={{ background: "var(--bg)" }}>
+      {/* 搜索弹窗 */}
+      {searchOpen && (
+        <div className="fixed inset-0 flex items-start justify-center pt-20 z-50" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setSearchOpen(false)}>
+          <div className="w-full max-w-2xl mx-4 rounded-lg border shadow-xl overflow-hidden" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }} onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b" style={{ borderColor: "var(--border)" }}>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="搜索文件名和内容... (Ctrl+F)"
+                className="w-full px-3 py-2 rounded border focus:outline-none"
+                style={{ background: "var(--bg-input)", borderColor: "var(--border)", color: "var(--text)" }}
+                autoFocus
+              />
+            </div>
+            <div className="max-h-96 overflow-auto">
+              {searchResults.length > 0 ? (
+                <div className="p-2">
+                  {searchResults.map((result, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => { handleSelectFile(result.path); setSearchOpen(false); }}
+                      className="w-full text-left px-3 py-2 rounded hover:bg-zinc-700/30"
+                      style={{ color: "var(--text)" }}
+                    >
+                      <div className="font-medium">{result.name}</div>
+                      <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                        {result.matches.slice(0, 3).map((m, i) => (
+                          <div key={i} className="truncate">{m}</div>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : searchQuery ? (
+                <div className="p-4 text-center" style={{ color: "var(--text-muted)" }}>无搜索结果</div>
+              ) : (
+                <div className="p-4 text-center" style={{ color: "var(--text-muted)" }}>输入关键词搜索</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 侧边栏 */}
       <aside
-        className={`flex flex-col border-r relative ${sidebarVisible ? "w-64" : "w-0"} overflow-hidden transition-all`}
+        className="flex flex-col border-r w-64"
         style={{ borderColor: "var(--border)", background: "var(--bg-secondary)" }}
       >
         {/* 侧边栏头部 */}
         <div className="flex items-center justify-between p-3 border-b" style={{ borderColor: "var(--border)" }}>
           <div className="flex items-center gap-2">
-            <span className="font-medium text-sm truncate" style={{ color: "var(--text)" }} title={docPath}>
-              {docPath.split(/[/\\]/).pop()}
+            <span className="font-medium text-sm truncate" style={{ color: "var(--text)" }} title={docPath!}>
+              {docPath!.split(/[/\\]/).pop()}
             </span>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="text-sm px-2 py-1 rounded hover:bg-zinc-700/50"
+              style={{ color: "var(--text-muted)" }}
+            >
+              🔍
+            </button>
             <button
               onClick={toggleTheme}
               className="text-sm px-2 py-1 rounded hover:bg-zinc-700/50"
@@ -362,71 +619,18 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 文件列表 */}
+        {/* 文件树 */}
         <div className="flex-1 overflow-auto p-2">
           <button
-            onClick={handleCreateFile}
+            onClick={() => handleCreateFile()}
             className="w-full text-left px-3 py-2 text-sm rounded hover:bg-zinc-700/50"
             style={{ color: "var(--text-muted)" }}
           >
             + 新建文件
           </button>
-          <ul className="mt-2 space-y-1">
-            {files.map(file => (
-              <li key={file.name} className="group relative">
-                <div className="flex items-center">
-                  <button
-                    onClick={() => setSelectedFile(file.name)}
-                    className={`flex-1 text-left px-3 py-2 rounded text-sm truncate ${
-                      selectedFile === file.name ? "bg-zinc-700/50" : "hover:bg-zinc-700/30"
-                    }`}
-                    style={{ color: selectedFile === file.name ? "var(--text)" : "var(--text-muted)" }}
-                  >
-                    {file.isDir ? "📁 " : "📄 "}{file.name}
-                  </button>
-                  {!file.isDir && (
-                    <div className="relative">
-                      <button
-                        onClick={() => setFileMenuOpen(fileMenuOpen === file.name ? null : file.name)}
-                        className="opacity-0 group-hover:opacity-100 px-2 text-xs"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        ⋮
-                      </button>
-                      {fileMenuOpen === file.name && (
-                        <>
-                          <div className="fixed inset-0 z-10" onClick={() => setFileMenuOpen(null)} />
-                          <div className="absolute right-0 top-full mt-1 w-28 py-1 rounded border shadow-lg z-20" style={{ background: "var(--bg-secondary)", borderColor: "var(--border)" }}>
-                            <button
-                              onClick={() => handleRenameFile(file.name)}
-                              className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
-                              style={{ color: "var(--text)" }}
-                            >
-                              重命名
-                            </button>
-                            <button
-                              onClick={() => handlePinFile(file.name)}
-                              className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
-                              style={{ color: "var(--text)" }}
-                            >
-                              置顶
-                            </button>
-                            <button
-                              onClick={() => handleDeleteFile(file.name)}
-                              className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-700/50"
-                              style={{ color: "#f87171" }}
-                            >
-                              删除
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="mt-2">
+            {renderTree(fileTree)}
+          </div>
         </div>
       </aside>
 
@@ -499,24 +703,33 @@ export default function Home() {
         onConfirm={confirmCreateFile}
         title="新建文件"
         label="文件名"
-        placeholder="输入文件名（无需 .md 后缀）"
+        placeholder="输入文件名"
+        confirmText="创建"
+      />
+      <InputModal
+        isOpen={modalType === "createDir"}
+        onClose={() => setModalType(null)}
+        onConfirm={confirmCreateDir}
+        title="新建文件夹"
+        label="文件夹名"
+        placeholder="输入文件夹名"
         confirmText="创建"
       />
       <InputModal
         isOpen={modalType === "rename"}
         onClose={() => setModalType(null)}
-        onConfirm={confirmRenameFile}
+        onConfirm={confirmRename}
         title="重命名"
-        label="新文件名"
-        placeholder="输入新文件名"
+        label="新名称"
+        placeholder="输入新名称"
         defaultValue={modalValue}
         confirmText="确定"
       />
       <ConfirmModal
-        isOpen={modalType === "delete"}
+        isOpen={modalType === "delete" || modalType === "deleteDir"}
         onClose={() => setModalType(null)}
-        onConfirm={confirmDeleteFile}
-        title="删除文件"
+        onConfirm={confirmDelete}
+        title={modalType === "deleteDir" ? "删除文件夹" : "删除文件"}
         message={`确定要删除 "${modalFile}" 吗？此操作不可撤销。`}
         confirmText="删除"
         cancelText="取消"

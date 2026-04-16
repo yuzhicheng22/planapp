@@ -178,3 +178,92 @@ export function directoryExists(docPath?: string): boolean {
   const dir = getDocDir(docPath);
   return fs.existsSync(dir);
 }
+
+export interface FileTreeItem {
+  name: string;
+  path: string;
+  isDir: boolean;
+  modified: string;
+  children?: FileTreeItem[];
+}
+
+export function getFileTree(docPath?: string): FileTreeItem[] {
+  const dir = getDocDir(docPath);
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+
+  function walk(dirPath: string, basePath: string = ""): FileTreeItem[] {
+    const items = fs.readdirSync(dirPath, { withFileTypes: true });
+    return items
+      .filter(item => item.isDirectory() || item.name.endsWith(".md"))
+      .map(item => {
+        const fullPath = path.join(dirPath, item.name);
+        const relPath = path.join(basePath, item.name);
+        const stat = fs.statSync(fullPath);
+        const result: FileTreeItem = {
+          name: item.name,
+          path: relPath,
+          isDir: item.isDirectory(),
+          modified: stat.mtime.toISOString().split("T")[0],
+        };
+        if (item.isDirectory()) {
+          result.children = walk(fullPath, relPath);
+        }
+        return result;
+      })
+      .sort((a, b) => {
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+  }
+
+  return walk(dir);
+}
+
+export function searchFiles(query: string, docPath?: string): { name: string; path: string; content: string; matches: string[] }[] {
+  const dir = getDocDir(docPath);
+  if (!fs.existsSync(dir) || !query.trim()) {
+    return [];
+  }
+
+  const results: { name: string; path: string; content: string; matches: string[] }[] = [];
+  const searchLower = query.toLowerCase();
+
+  function searchInDir(dirPath: string, basePath: string = "") {
+    const items = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const item of items) {
+      if (item.isDirectory()) {
+        searchInDir(path.join(dirPath, item.name), path.join(basePath, item.name));
+      } else if (item.name.endsWith(".md")) {
+        const fullPath = path.join(dirPath, item.name);
+        const relPath = path.join(basePath, item.name);
+        const fileContent = fs.readFileSync(fullPath, "utf-8");
+        const contentLower = fileContent.toLowerCase();
+
+        // 搜索文件名
+        const nameMatch = item.name.toLowerCase().includes(searchLower);
+        // 搜索内容行
+        const lines = fileContent.split("\n");
+        const matchedLines: string[] = [];
+        lines.forEach((line, idx) => {
+          if (line.toLowerCase().includes(searchLower)) {
+            matchedLines.push(`${idx + 1}: ${line.substring(0, 100)}`);
+          }
+        });
+
+        if (nameMatch || matchedLines.length > 0) {
+          results.push({
+            name: item.name,
+            path: relPath,
+            content: fileContent.substring(0, 200),
+            matches: matchedLines.slice(0, 5),
+          });
+        }
+      }
+    }
+  }
+
+  searchInDir(dir);
+  return results;
+}
